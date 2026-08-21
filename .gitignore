@@ -1,0 +1,33 @@
+# macOS
+.DS_Store
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+backend/.classpath
+backend/.project
+backend/.settings/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Spring / Gradle
+backend/.gradle/
+backend/build/
+backend/data/
+backend/out/
+
+# Frontend / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+
+# Logs and generated audio
+*.log
+*.aiff
+*.wav
+*.mp3

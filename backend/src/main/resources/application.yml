@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: sleep-knowledge-api
+  datasource:
+    # 학습용 로컬 DB입니다. 서버를 재시작해도 작성한 콘텐츠가 backend/data에 남습니다.
+    url: jdbc:h2:file:./data/sleepknowledge;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+server:
+  # 인증과 사용량 제한이 없는 학습용 데모이므로 기본값은 이 Mac 안에서만 접근합니다.
+  address: 127.0.0.1
+  port: 8080
+
+app:
+  cors:
+    allowed-origins:
+      - http://localhost:5173
+      - http://127.0.0.1:5173
+  narration:
+    command: /usr/bin/say
+    base-words-per-minute: 180
+    timeout: 5m
