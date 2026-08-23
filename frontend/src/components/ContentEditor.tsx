@@ -4,6 +4,7 @@ import {
   CONTENT_CONSTRAINTS,
   estimateListeningMinutes,
   getCategoryLabel,
+  normalizeContentCategory,
   type ContentDraft,
   type KnowledgeContent,
 } from '../domain/content';
@@ -19,7 +20,7 @@ interface ContentEditorProps {
 const EMPTY_DRAFT: ContentDraft = {
   title: '',
   summary: '',
-  category: 'QUANTUM_PHYSICS',
+  category: 'SCIENCE',
   script: '',
 };
 
@@ -35,7 +36,7 @@ export function ContentEditor({
       ? {
           title: content.title,
           summary: content.summary,
-          category: content.category,
+          category: normalizeContentCategory(content.category),
           script: content.script,
         }
       : EMPTY_DRAFT,
@@ -67,7 +68,7 @@ export function ContentEditor({
 
   return (
     <main id="main" className="editor-page">
-      <button type="button" className="back-button" onClick={onCancel}>
+      <button type="button" className="back-button" onClick={onCancel} disabled={isSaving}>
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10H5m4-4-4 4 4 4" /></svg>
         {content ? '이야기로 돌아가기' : '보관함으로 돌아가기'}
       </button>

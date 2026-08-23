@@ -81,7 +81,7 @@ export function useContentLibrary() {
         setDetailStatus('success');
         setDetailError(null);
         setSaveStatus('success');
-        await loadContents();
+        void loadContents();
         return saved;
       } catch (error) {
         setSaveError(toErrorMessage(error));

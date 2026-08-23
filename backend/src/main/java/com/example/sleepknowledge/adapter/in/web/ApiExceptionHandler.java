@@ -1,14 +1,17 @@
 package com.example.sleepknowledge.adapter.in.web;
 
 import com.example.sleepknowledge.application.exception.ContentNotFoundException;
+import com.example.sleepknowledge.application.exception.NarrationNotReadyException;
 import com.example.sleepknowledge.application.exception.SpeechSynthesisException;
 import com.example.sleepknowledge.application.exception.UnsupportedVoiceException;
+import com.example.sleepknowledge.authentication.UsernameAlreadyExistsException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -71,6 +74,26 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem);
     }
 
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ProblemDetail> handleAuthenticationFailure(AuthenticationException exception) {
+        ProblemDetail problem = problem(
+                HttpStatus.UNAUTHORIZED,
+                "로그인할 수 없습니다.",
+                "사용자 이름 또는 비밀번호를 확인해 주세요."
+        );
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(problem);
+    }
+
+    @ExceptionHandler(UsernameAlreadyExistsException.class)
+    public ResponseEntity<ProblemDetail> handleUsernameConflict(UsernameAlreadyExistsException exception) {
+        ProblemDetail problem = problem(
+                HttpStatus.CONFLICT,
+                "사용자 이름을 사용할 수 없습니다.",
+                exception.getMessage()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
+    }
+
     @ExceptionHandler({UnsupportedVoiceException.class, IllegalArgumentException.class})
     public ResponseEntity<ProblemDetail> handleBadRequest(RuntimeException exception) {
         ProblemDetail problem = problem(
@@ -90,6 +113,17 @@ public class ApiExceptionHandler {
                 "TTS 엔진 설정과 서버 로그를 확인해 주세요."
         );
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(problem);
+    }
+
+    @ExceptionHandler(NarrationNotReadyException.class)
+    public ResponseEntity<ProblemDetail> handleNarrationNotReady(NarrationNotReadyException exception) {
+        ProblemDetail problem = problem(
+                HttpStatus.CONFLICT,
+                "내레이션이 아직 준비되지 않았습니다.",
+                exception.getMessage()
+        );
+        problem.setProperty("status", exception.status());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(Exception.class)

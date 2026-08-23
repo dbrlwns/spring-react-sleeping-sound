@@ -1,9 +1,31 @@
 import { describe, expect, it } from 'vitest';
-import { estimateListeningMinutes, getCategoryLabel, getCategoryTone } from './content';
+import {
+  CONTENT_CATEGORIES,
+  estimateListeningMinutes,
+  getCategoryLabel,
+  getCategoryTone,
+  normalizeContentCategory,
+} from './content';
 
 describe('content presentation helpers', () => {
-  it('알려진 API 분류 코드를 한국어로 표시한다', () => {
-    expect(getCategoryLabel('COSMOLOGY')).toBe('우주론');
+  it('전체와 8개의 넓은 주제를 제공한다', () => {
+    expect(CONTENT_CATEGORIES).toEqual([
+      { id: 'ALL', label: '전체' },
+      { id: 'SCIENCE', label: '과학' },
+      { id: 'SOCIETY', label: '사회' },
+      { id: 'HISTORY', label: '역사' },
+      { id: 'PHILOSOPHY', label: '철학' },
+      { id: 'ECONOMY', label: '경제' },
+      { id: 'TECHNOLOGY', label: '기술' },
+      { id: 'CULTURE', label: '문화' },
+      { id: 'PSYCHOLOGY', label: '심리' },
+    ]);
+  });
+
+  it('기존 과학 분류를 과학 주제로 합쳐 표시한다', () => {
+    expect(normalizeContentCategory('COSMOLOGY')).toBe('SCIENCE');
+    expect(getCategoryLabel('COSMOLOGY')).toBe('과학');
+    expect(getCategoryTone('COSMOLOGY')).toBe(getCategoryTone('SCIENCE'));
   });
 
   it('새로운 분류 코드도 화면을 깨뜨리지 않고 읽을 수 있게 표시한다', () => {

@@ -21,7 +21,7 @@ public record ContentSummaryResponse(
                 episode.id(),
                 episode.title(),
                 episode.summary(),
-                episode.category(),
+                episode.category().canonical(),
                 episode.createdAt(),
                 episode.updatedAt()
         );

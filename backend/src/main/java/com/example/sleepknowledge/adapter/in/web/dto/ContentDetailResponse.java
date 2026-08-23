@@ -21,7 +21,7 @@ public record ContentDetailResponse(
                 episode.id(),
                 episode.title(),
                 episode.summary(),
-                episode.category(),
+                episode.category().canonical(),
                 episode.script(),
                 episode.createdAt(),
                 episode.updatedAt()

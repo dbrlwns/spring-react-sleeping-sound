@@ -25,6 +25,6 @@ public record ContentRequest(
 ) {
 
     public EpisodeDraft toDraft() {
-        return new EpisodeDraft(title, summary, category, script);
+        return new EpisodeDraft(title, summary, category.canonical(), script);
     }
 }

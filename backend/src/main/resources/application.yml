@@ -13,7 +13,7 @@ spring:
     open-in-view: false
 
 server:
-  # 인증과 사용량 제한이 없는 학습용 데모이므로 기본값은 이 Mac 안에서만 접근합니다.
+  # 세션 인증을 사용하지만 운영용 권한·사용량 제한은 없으므로 기본값은 이 Mac 안에서만 접근합니다.
   address: 127.0.0.1
   port: 8080
 
@@ -23,6 +23,17 @@ app:
       - http://localhost:5173
       - http://127.0.0.1:5173
   narration:
-    command: /usr/bin/say
-    base-words-per-minute: 180
-    timeout: 5m
+    # google-chirp3로 바꿀 때만 Google SDK가 ADC를 조회하고 원격 클라이언트를 생성합니다.
+    provider: macos-say
+    macos-say:
+      command: /usr/bin/say
+      base-words-per-minute: 180
+      timeout: 5m
+    google-chirp3:
+      endpoint: texttospeech.googleapis.com:443
+      language-code: ko-KR
+      voice-name: ko-KR-Chirp3-HD-Kore
+      max-input-bytes: 5000
+      max-chunks: 32
+      max-audio-bytes: 268435456
+      rpc-timeout: 30s

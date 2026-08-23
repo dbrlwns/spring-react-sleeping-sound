@@ -1,11 +1,10 @@
 package com.example.sleepknowledge.adapter.in.web;
 
-import com.example.sleepknowledge.adapter.in.web.dto.NarrationRequest;
+import com.example.sleepknowledge.adapter.in.web.dto.NarrationStatusResponse;
 import com.example.sleepknowledge.adapter.in.web.dto.VoicesResponse;
-import com.example.sleepknowledge.application.port.in.GenerateNarrationUseCase;
+import com.example.sleepknowledge.application.port.in.BrowseNarrationUseCase;
 import com.example.sleepknowledge.application.port.in.ListNarrationVoicesUseCase;
 import com.example.sleepknowledge.domain.model.AudioContent;
-import jakarta.validation.Valid;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -13,8 +12,6 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,14 +22,14 @@ import java.util.UUID;
 @RequestMapping("/api/v1")
 public class NarrationController {
 
-    private final GenerateNarrationUseCase generateNarrationUseCase;
+    private final BrowseNarrationUseCase browseNarrationUseCase;
     private final ListNarrationVoicesUseCase listNarrationVoicesUseCase;
 
     public NarrationController(
-            GenerateNarrationUseCase generateNarrationUseCase,
+            BrowseNarrationUseCase browseNarrationUseCase,
             ListNarrationVoicesUseCase listNarrationVoicesUseCase
     ) {
-        this.generateNarrationUseCase = generateNarrationUseCase;
+        this.browseNarrationUseCase = browseNarrationUseCase;
         this.listNarrationVoicesUseCase = listNarrationVoicesUseCase;
     }
 
@@ -41,16 +38,19 @@ public class NarrationController {
         return VoicesResponse.from(listNarrationVoicesUseCase.listVoices());
     }
 
-    @PostMapping(
-            value = "/contents/{contentId}/narration",
-            consumes = MediaType.APPLICATION_JSON_VALUE,
+    @GetMapping(value = "/contents/{contentId}/narration/status", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<NarrationStatusResponse> getNarrationStatus(@PathVariable UUID contentId) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(NarrationStatusResponse.from(browseNarrationUseCase.getNarrationStatus(contentId)));
+    }
+
+    @GetMapping(
+            value = "/contents/{contentId}/narration/audio",
             produces = AudioContent.WAV_MEDIA_TYPE
     )
-    public ResponseEntity<byte[]> generateNarration(
-            @PathVariable UUID contentId,
-            @Valid @RequestBody NarrationRequest request
-    ) {
-        AudioContent audio = generateNarrationUseCase.generateNarration(contentId, request.toOptions());
+    public ResponseEntity<byte[]> getNarrationAudio(@PathVariable UUID contentId) {
+        AudioContent audio = browseNarrationUseCase.getNarrationAudio(contentId);
         byte[] body = audio.bytes();
 
         return ResponseEntity.ok()

@@ -1,43 +1,140 @@
+import { useEffect, useState } from 'react';
+import { AuthScreen } from './components/AuthScreen';
 import { ContentDetail } from './components/ContentDetail';
 import { ContentEditor } from './components/ContentEditor';
 import { ContentLibrary } from './components/ContentLibrary';
 import { NarrationPanel } from './components/NarrationPanel';
+import type { AuthCredentials, AuthMode } from './domain/auth';
+import { useAuth } from './hooks/useAuth';
 import { useContentLibrary } from './hooks/useContentLibrary';
-import { useNarrationGenerator } from './hooks/useNarrationGenerator';
-import { useVoices } from './hooks/useVoices';
-import { useState } from 'react';
 
 type Screen = 'library' | 'detail' | 'editor';
+type WriteIntent =
+  | { type: 'create' }
+  | { type: 'edit'; contentId: string };
 
-function App() {
+interface KnowledgeAppProps {
+  isAuthenticated: boolean;
+  isCheckingAuth: boolean;
+  isSessionError: boolean;
+  username: string | null;
+  isAuthActionLoading: boolean;
+  authError: string | null;
+  onAuthenticate: (mode: AuthMode, credentials: AuthCredentials) => Promise<boolean>;
+  onLogout: () => Promise<boolean>;
+  onRetrySession: () => void;
+  onClearAuthError: () => void;
+}
+
+export function KnowledgeApp({
+  isAuthenticated,
+  isCheckingAuth,
+  isSessionError,
+  username,
+  isAuthActionLoading,
+  authError,
+  onAuthenticate,
+  onLogout,
+  onRetrySession,
+  onClearAuthError,
+}: KnowledgeAppProps) {
   const [screen, setScreen] = useState<Screen>('library');
   const [isCreating, setIsCreating] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
+  const [pendingWriteIntent, setPendingWriteIntent] = useState<WriteIntent | null>(null);
   const library = useContentLibrary();
-  const voiceState = useVoices();
-  const narration = useNarrationGenerator();
 
   function showLibrary() {
-    narration.clearResult();
     setScreen('library');
     setIsCreating(false);
   }
 
   function openContent(id: string) {
-    narration.clearResult();
     setScreen('detail');
     void library.openContent(id);
   }
 
+  function continueWriteIntent(intent: WriteIntent | null) {
+    if (!intent) return;
+
+    if (intent?.type === 'create') {
+      setIsCreating(true);
+      setScreen('editor');
+      return;
+    }
+
+    if (
+      intent?.type === 'edit' &&
+      library.selectedContent?.id === intent.contentId
+    ) {
+      setIsCreating(false);
+      setScreen('editor');
+      return;
+    }
+
+    showLibrary();
+  }
+
+  function requestAuthentication(intent: WriteIntent | null = null) {
+    setPendingWriteIntent(intent);
+    setShowAuth(true);
+  }
+
   function startCreate() {
-    narration.clearResult();
+    if (!isAuthenticated) {
+      requestAuthentication({ type: 'create' });
+      return;
+    }
     setIsCreating(true);
     setScreen('editor');
   }
 
   function startEdit() {
+    if (!library.selectedContent) return;
+    if (!isAuthenticated) {
+      requestAuthentication({
+        type: 'edit',
+        contentId: library.selectedContent.id,
+      });
+      return;
+    }
     setIsCreating(false);
     setScreen('editor');
   }
+
+  async function authenticate(mode: AuthMode, credentials: AuthCredentials) {
+    const succeeded = await onAuthenticate(mode, credentials);
+    if (!succeeded) return false;
+
+    const intent = pendingWriteIntent;
+    setPendingWriteIntent(null);
+    setShowAuth(false);
+    continueWriteIntent(intent);
+    return true;
+  }
+
+  function closeAuth() {
+    setPendingWriteIntent(null);
+    setShowAuth(false);
+    onClearAuthError();
+  }
+
+  async function logout() {
+    if (!(await onLogout())) return;
+    setPendingWriteIntent(null);
+    setShowAuth(false);
+    showLibrary();
+  }
+
+  useEffect(() => {
+    if (!showAuth || !isAuthenticated) return;
+    const intent = pendingWriteIntent;
+    setPendingWriteIntent(null);
+    setShowAuth(false);
+    continueWriteIntent(intent);
+    // authenticate()가 처리하지 않은 백그라운드 세션 복구만 이어갑니다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, showAuth]);
 
   async function saveEditor(draft: Parameters<typeof library.saveContent>[0]) {
     const saved = await library.saveContent(
@@ -51,8 +148,23 @@ function App() {
   }
 
   function cancelEditor() {
+    if (library.saveStatus === 'loading') return;
     setScreen(isCreating ? 'library' : 'detail');
     setIsCreating(false);
+  }
+
+  if (showAuth) {
+    return (
+      <AuthScreen
+        isSubmitting={isAuthActionLoading}
+        isSessionError={isSessionError}
+        error={authError}
+        onSubmit={authenticate}
+        onBack={closeAuth}
+        onRetrySession={onRetrySession}
+        onModeChange={onClearAuthError}
+      />
+    );
   }
 
   return (
@@ -71,8 +183,34 @@ function App() {
             <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" /></svg>
             새 이야기
           </button>
+          {isAuthenticated && username ? (
+            <>
+              <span className="session-user" title={`${username} 계정으로 로그인됨`}>
+                <span aria-hidden="true">●</span>{username}
+              </span>
+              <button
+                className="logout-button"
+                type="button"
+                disabled={isAuthActionLoading}
+                onClick={() => void logout()}
+              >
+                {isAuthActionLoading ? '로그아웃 중…' : '로그아웃'}
+              </button>
+            </>
+          ) : (
+            <button
+              className="login-button"
+              type="button"
+              disabled={isCheckingAuth}
+              onClick={() => requestAuthentication()}
+            >
+              {isCheckingAuth ? '확인 중…' : '로그인'}
+            </button>
+          )}
         </nav>
       </header>
+
+      {authError && <div className="session-alert" role="alert">{authError}</div>}
 
       {screen === 'library' && (
         <main id="main" className="library-page">
@@ -80,7 +218,7 @@ function App() {
             <div className="hero-copy">
               <p className="eyebrow">KNOWLEDGE FOR DEEP REST</p>
               <h1 id="page-title">잠들기 전,<br /><em>깊은 이야기</em>를 천천히.</h1>
-              <p>양자역학부터 우주의 탄생까지. 어렵지만 흥미로운 지식을 편안한 호흡의 원고로 만나보세요.</p>
+              <p>과학과 사회, 역사와 철학까지. 다양한 지식을 편안한 호흡의 원고로 만나보세요.</p>
               <button type="button" className="hero-action" onClick={() => document.getElementById('library-title')?.scrollIntoView()}>
                 오늘의 이야기 둘러보기
                 <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 8 4 4 4-4" /></svg>
@@ -123,31 +261,20 @@ function App() {
       )}
 
       {screen === 'detail' && library.selectedContent && library.detailStatus !== 'loading' && (
-        <ContentDetail content={library.selectedContent} onBack={showLibrary} onEdit={startEdit}>
+        <ContentDetail
+          content={library.selectedContent}
+          isAuthenticated={isAuthenticated}
+          onBack={showLibrary}
+          onEdit={startEdit}
+        >
           <NarrationPanel
-            voices={voiceState.voices}
-            selectedVoiceId={voiceState.selectedVoiceId}
-            voiceStatus={voiceState.status}
-            voiceError={voiceState.error}
-            generationStatus={narration.status}
-            generationError={narration.error}
-            result={narration.result}
-            onVoiceChange={voiceState.setSelectedVoiceId}
-            onReloadVoices={voiceState.reload}
-            onGenerate={(voiceId, speed) =>
-              void narration.generate(
-                library.selectedContent!.id,
-                library.selectedContent!.title,
-                voiceId,
-                speed,
-              )
-            }
-            onCancel={narration.cancel}
+            contentId={library.selectedContent.id}
+            title={library.selectedContent.title}
           />
         </ContentDetail>
       )}
 
-      {screen === 'editor' && (
+      {screen === 'editor' && isAuthenticated && (
         <ContentEditor
           key={isCreating ? 'new' : library.selectedContent?.id}
           content={isCreating ? undefined : library.selectedContent ?? undefined}
@@ -163,6 +290,28 @@ function App() {
         <span>Spring Boot · React · Vite</span>
       </footer>
     </div>
+  );
+}
+
+function App() {
+  const auth = useAuth();
+  const isAuthenticated =
+    auth.status === 'authenticated' &&
+    auth.session?.authenticated === true;
+
+  return (
+    <KnowledgeApp
+      isAuthenticated={isAuthenticated}
+      isCheckingAuth={auth.status === 'checking'}
+      isSessionError={auth.status === 'error'}
+      username={isAuthenticated ? auth.session?.username ?? null : null}
+      isAuthActionLoading={auth.actionStatus === 'loading'}
+      authError={auth.error}
+      onAuthenticate={auth.submitCredentials}
+      onLogout={auth.endSession}
+      onRetrySession={() => void auth.checkSession()}
+      onClearAuthError={auth.clearError}
+    />
   );
 }
 

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   CONTENT_CATEGORIES,
+  normalizeContentCategory,
   type KnowledgeContentSummary,
 } from '../domain/content';
 import { ContentCard } from './ContentCard';
@@ -25,7 +26,8 @@ export function ContentLibrary({
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return contents.filter((content) => {
-      const categoryMatches = category === 'ALL' || content.category === category;
+      const categoryMatches =
+        category === 'ALL' || normalizeContentCategory(content.category) === category;
       const queryMatches =
         !normalizedQuery ||
         `${content.title} ${content.summary}`.toLowerCase().includes(normalizedQuery);

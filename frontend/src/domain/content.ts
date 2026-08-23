@@ -1,10 +1,21 @@
 export const CONTENT_CATEGORIES = [
   { id: 'ALL', label: '전체' },
-  { id: 'QUANTUM_PHYSICS', label: '양자역학' },
-  { id: 'COSMOLOGY', label: '우주론' },
-  { id: 'ASTRONOMY', label: '천문학' },
-  { id: 'GENERAL_SCIENCE', label: '과학 교양' },
+  { id: 'SCIENCE', label: '과학' },
+  { id: 'SOCIETY', label: '사회' },
+  { id: 'HISTORY', label: '역사' },
+  { id: 'PHILOSOPHY', label: '철학' },
+  { id: 'ECONOMY', label: '경제' },
+  { id: 'TECHNOLOGY', label: '기술' },
+  { id: 'CULTURE', label: '문화' },
+  { id: 'PSYCHOLOGY', label: '심리' },
 ] as const;
+
+const LEGACY_CATEGORY_ALIASES: Readonly<Record<string, string>> = {
+  QUANTUM_PHYSICS: 'SCIENCE',
+  COSMOLOGY: 'SCIENCE',
+  ASTRONOMY: 'SCIENCE',
+  GENERAL_SCIENCE: 'SCIENCE',
+};
 
 export interface KnowledgeContentSummary {
   id: string;
@@ -38,10 +49,15 @@ const CATEGORY_LABELS: ReadonlyMap<string, string> = new Map(
   CONTENT_CATEGORIES.map((category) => [category.id, category.label]),
 );
 
+export function normalizeContentCategory(category: string): string {
+  return LEGACY_CATEGORY_ALIASES[category] ?? category;
+}
+
 export function getCategoryLabel(category: string): string {
+  const normalizedCategory = normalizeContentCategory(category);
   return (
-    CATEGORY_LABELS.get(category) ??
-    category
+    CATEGORY_LABELS.get(normalizedCategory) ??
+    normalizedCategory
       .toLowerCase()
       .split('_')
       .filter(Boolean)
@@ -58,10 +74,14 @@ export function estimateListeningMinutes(script: string): number {
 
 export function getCategoryTone(category: string): string {
   const tones: Record<string, string> = {
-    QUANTUM_PHYSICS: 'violet',
-    COSMOLOGY: 'navy',
-    ASTRONOMY: 'blue',
-    GENERAL_SCIENCE: 'green',
+    SCIENCE: 'violet',
+    SOCIETY: 'navy',
+    HISTORY: 'sand',
+    PHILOSOPHY: 'blue',
+    ECONOMY: 'green',
+    TECHNOLOGY: 'navy',
+    CULTURE: 'sand',
+    PSYCHOLOGY: 'violet',
   };
-  return tones[category] ?? 'sand';
+  return tones[normalizeContentCategory(category)] ?? 'sand';
 }

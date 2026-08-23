@@ -4,5 +4,5 @@
 *.iml
 .gradle/
 build/
-out/
+/out/
 data/

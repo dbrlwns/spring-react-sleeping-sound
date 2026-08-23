@@ -3,8 +3,8 @@ import type {
   KnowledgeContent,
   KnowledgeContentSummary,
 } from '../domain/content';
-import { estimateListeningMinutes } from '../domain/content';
-import type { NarrationOptions } from '../domain/speech';
+import { estimateListeningMinutes, normalizeContentCategory } from '../domain/content';
+import type { NarrationJob, NarrationJobStatus } from '../domain/speech';
 import { ApiError, apiRequest, apiRequestJson } from './httpClient';
 
 interface RawContent {
@@ -57,7 +57,7 @@ function toSummary(value: unknown): KnowledgeContentSummary | null {
     id,
     title,
     summary,
-    category,
+    category: normalizeContentCategory(category),
     scriptPreview: preview,
     estimatedMinutes,
   };
@@ -132,26 +132,59 @@ export async function updateContent(
   return toContent(payload);
 }
 
-export async function createNarration(
+const NARRATION_JOB_STATUSES: ReadonlySet<NarrationJobStatus> = new Set([
+  'PENDING',
+  'PROCESSING',
+  'READY',
+  'FAILED',
+]);
+
+function toNarrationJob(value: unknown): NarrationJob {
+  if (!value || typeof value !== 'object') {
+    throw new ApiError('내레이션 상태 응답 형식이 올바르지 않습니다.', 500);
+  }
+
+  const raw = value as Record<string, unknown>;
+  const status = typeof raw.status === 'string' ? raw.status : '';
+  if (!NARRATION_JOB_STATUSES.has(status as NarrationJobStatus)) {
+    throw new ApiError('알 수 없는 내레이션 상태를 받았습니다.', 500);
+  }
+
+  return {
+    status: status as NarrationJobStatus,
+    errorMessage:
+      typeof raw.errorMessage === 'string' && raw.errorMessage.trim()
+        ? raw.errorMessage.trim()
+        : undefined,
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined,
+  };
+}
+
+export async function getNarrationStatus(
   contentIdValue: string,
-  request: NarrationOptions,
+  signal?: AbortSignal,
+): Promise<NarrationJob> {
+  const payload = await apiRequestJson<unknown>(
+    `/api/v1/contents/${encodeURIComponent(contentIdValue)}/narration/status`,
+    { signal },
+  );
+  return toNarrationJob(payload);
+}
+
+export async function getNarrationAudio(
+  contentIdValue: string,
   signal?: AbortSignal,
 ): Promise<Blob> {
   const response = await apiRequest(
-    `/api/v1/contents/${encodeURIComponent(contentIdValue)}/narration`,
+    `/api/v1/contents/${encodeURIComponent(contentIdValue)}/narration/audio`,
     {
-      method: 'POST',
       signal,
-      headers: {
-        Accept: 'audio/wav',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(request),
+      headers: { Accept: 'audio/wav' },
     },
   );
   const blob = await response.blob();
   if (blob.size === 0) {
-    throw new ApiError('서버가 빈 나레이션 파일을 반환했습니다.', 502);
+    throw new ApiError('서버가 빈 내레이션 파일을 반환했습니다.', 502);
   }
   return blob;
 }
