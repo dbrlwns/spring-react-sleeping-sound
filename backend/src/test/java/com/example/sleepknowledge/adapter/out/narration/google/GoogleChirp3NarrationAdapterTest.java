@@ -2,6 +2,7 @@ package com.example.sleepknowledge.adapter.out.narration.google;
 
 import com.example.sleepknowledge.application.exception.SpeechSynthesisException;
 import com.example.sleepknowledge.config.NarrationProperties;
+import com.example.sleepknowledge.domain.model.AudioContent;
 import com.example.sleepknowledge.domain.model.NarrationOptions;
 import com.google.api.gax.rpc.ApiException;
 import com.google.cloud.texttospeech.v1.AudioConfig;
@@ -28,15 +29,21 @@ class GoogleChirp3NarrationAdapterTest {
     private final TextToSpeechClient client = mock(TextToSpeechClient.class);
 
     @Test
-    void configured_voice는_RPC없이_제공한다() {
+    void 관리자_허용_voice_여섯_종은_RPC없이_제공한다() {
         var adapter = new GoogleChirp3NarrationAdapter(client, properties(5_000, 32, 1_000));
 
         var voices = adapter.findAvailableVoices();
 
-        assertThat(voices).singleElement().satisfies(voice -> {
-            assertThat(voice.id()).isEqualTo("ko-KR-Chirp3-HD-Kore");
-            assertThat(voice.locale()).isEqualTo("ko-KR");
-        });
+        assertThat(voices).hasSize(6)
+                .extracting("id")
+                .containsExactly(
+                        "ko-KR-Chirp3-HD-Kore",
+                        "ko-KR-Chirp3-HD-Zephyr",
+                        "ko-KR-Chirp3-HD-Leda",
+                        "ko-KR-Chirp3-HD-Charon",
+                        "ko-KR-Chirp3-HD-Schedar",
+                        "ko-KR-Chirp3-HD-Achird"
+                );
         verifyNoInteractions(client);
     }
 
@@ -49,7 +56,7 @@ class GoogleChirp3NarrationAdapterTest {
                 any(AudioConfig.class)
         )).thenReturn(response(responseWav));
         var adapter = new GoogleChirp3NarrationAdapter(client, properties(12, 32, 1_000));
-        var voice = adapter.findAvailableVoices().get(0);
+        var voice = adapter.findAvailableVoices().get(5);
         String script = "한글 문장과 emoji 😊를 읽습니다.";
 
         var audio = adapter.synthesize(script, new NarrationOptions(voice.id(), 0.9d), voice);
@@ -73,13 +80,13 @@ class GoogleChirp3NarrationAdapterTest {
         )).isEqualTo(script);
         assertThat(voiceCaptor.getAllValues()).allSatisfy(selection -> {
             assertThat(selection.getLanguageCode()).isEqualTo("ko-KR");
-            assertThat(selection.getName()).isEqualTo("ko-KR-Chirp3-HD-Kore");
+            assertThat(selection.getName()).isEqualTo("ko-KR-Chirp3-HD-Achird");
         });
         assertThat(audioCaptor.getAllValues()).allSatisfy(config -> {
             assertThat(config.getAudioEncoding()).isEqualTo(AudioEncoding.LINEAR16);
             assertThat(config.getSpeakingRate()).isEqualTo(0.9d);
         });
-        assertThat(audio.mediaType()).isEqualTo("audio/wav");
+        assertThat(audio.mediaType()).isEqualTo(AudioContent.LINEAR16_WAV_MEDIA_TYPE);
         assertThat(java.util.Arrays.copyOfRange(audio.bytes(), 0, 4))
                 .containsExactly((byte) 'R', (byte) 'I', (byte) 'F', (byte) 'F');
         assertThat(audio.bytes().length).isEqualTo(44 + inputCaptor.getAllValues().size() * 2);
@@ -124,7 +131,7 @@ class GoogleChirp3NarrationAdapterTest {
         TextToSpeechClient untouchedClient = mock(TextToSpeechClient.class);
         var tooManyChunksAdapter = new GoogleChirp3NarrationAdapter(
                 untouchedClient,
-                properties(3, 1, 1_000)
+                properties(4, 1, 1_000)
         );
         var configuredVoice = tooManyChunksAdapter.findAvailableVoices().get(0);
         assertThatThrownBy(() -> tooManyChunksAdapter.synthesize(
@@ -143,8 +150,6 @@ class GoogleChirp3NarrationAdapterTest {
     ) {
         return new NarrationProperties.GoogleChirp3(
                 "texttospeech.googleapis.com:443",
-                "ko-KR",
-                "ko-KR-Chirp3-HD-Kore",
                 maxInputBytes,
                 maxChunks,
                 maxAudioBytes,

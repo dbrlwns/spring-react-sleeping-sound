@@ -58,7 +58,7 @@ public class AuthController {
                 || authentication instanceof AnonymousAuthenticationToken) {
             return AuthSessionResponse.anonymous();
         }
-        return AuthSessionResponse.authenticated(authentication.getName());
+        return AuthSessionResponse.authenticated(authentication);
     }
 
     @PostMapping("/register")
@@ -71,7 +71,7 @@ public class AuthController {
         Authentication authentication = authenticate(request);
         saveAuthenticatedSession(authentication, servletRequest, servletResponse);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(AuthSessionResponse.authenticated(authentication.getName()));
+                .body(AuthSessionResponse.authenticated(authentication));
     }
 
     @PostMapping("/login")
@@ -82,7 +82,7 @@ public class AuthController {
     ) {
         Authentication authentication = authenticate(request);
         saveAuthenticatedSession(authentication, servletRequest, servletResponse);
-        return AuthSessionResponse.authenticated(authentication.getName());
+        return AuthSessionResponse.authenticated(authentication);
     }
 
     private Authentication authenticate(AuthCredentialsRequest request) {

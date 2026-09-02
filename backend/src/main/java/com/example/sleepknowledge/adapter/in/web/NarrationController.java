@@ -47,7 +47,7 @@ public class NarrationController {
 
     @GetMapping(
             value = "/contents/{contentId}/narration/audio",
-            produces = AudioContent.WAV_MEDIA_TYPE
+            produces = AudioContent.MP3_MEDIA_TYPE
     )
     public ResponseEntity<byte[]> getNarrationAudio(@PathVariable UUID contentId) {
         AudioContent audio = browseNarrationUseCase.getNarrationAudio(contentId);
@@ -60,7 +60,7 @@ public class NarrationController {
                 .header(
                         HttpHeaders.CONTENT_DISPOSITION,
                         ContentDisposition.inline()
-                                .filename("narration-" + contentId + ".wav")
+                                .filename("narration-" + contentId + ".mp3")
                                 .build()
                                 .toString()
                 )

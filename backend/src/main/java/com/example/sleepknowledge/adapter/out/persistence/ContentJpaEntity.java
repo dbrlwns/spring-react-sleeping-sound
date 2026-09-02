@@ -35,6 +35,13 @@ class ContentJpaEntity {
     @Column(nullable = false)
     private String script;
 
+    /**
+     * 기존 H2 파일 DB에는 이 값이 없는 row가 있으므로 nullable로 마이그레이션합니다.
+     * 애플리케이션 경계에서는 Episode가 null을 안정적인 legacy 작성자로 정규화합니다.
+     */
+    @Column(name = "author_username", length = Episode.MAX_AUTHOR_USERNAME_LENGTH)
+    private String authorUsername;
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -51,6 +58,7 @@ class ContentJpaEntity {
         this.summary = episode.summary();
         this.category = episode.category();
         this.script = episode.script();
+        this.authorUsername = episode.authorUsername();
         this.createdAt = episode.createdAt();
         this.updatedAt = episode.updatedAt();
     }
@@ -60,6 +68,6 @@ class ContentJpaEntity {
     }
 
     Episode toDomain() {
-        return new Episode(id, title, summary, category, script, createdAt, updatedAt);
+        return new Episode(id, title, summary, category, script, authorUsername, createdAt, updatedAt);
     }
 }

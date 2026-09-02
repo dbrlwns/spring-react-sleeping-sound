@@ -9,19 +9,22 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
-/** 비동기 내레이션 상태와 완성된 WAV를 저장하는 계약입니다. */
+/** 비동기 내레이션 상태와 완성된 MP3를 저장하는 계약입니다. */
 public interface NarrationAssetRepositoryPort {
 
     NarrationState resetToPending(
             UUID contentId,
             UUID generationId,
             Instant sourceUpdatedAt,
+            String voiceId,
             Instant updatedAt
     );
 
     Optional<NarrationState> findState(UUID contentId);
 
     Optional<AudioContent> findReadyAudio(UUID contentId);
+
+    void deleteByContentId(UUID contentId);
 
     boolean markProcessing(UUID contentId, UUID generationId, Instant updatedAt);
 

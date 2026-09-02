@@ -31,6 +31,11 @@ public class JpaContentRepositoryAdapter implements ContentRepositoryPort {
     }
 
     @Override
+    public Optional<Episode> findByIdForUpdate(UUID contentId) {
+        return repository.findByIdForUpdate(contentId).map(ContentJpaEntity::toDomain);
+    }
+
+    @Override
     public Episode save(Episode episode) {
         return repository.save(ContentJpaEntity.from(episode)).toDomain();
     }

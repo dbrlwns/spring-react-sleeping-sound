@@ -5,7 +5,7 @@ plugins {
 
 group = 'com.example'
 version = '0.0.1-SNAPSHOT'
-description = 'Authenticated educational content library with automatic TTS narration'
+description = 'Educational content library with user-proposed, administrator-approved TTS narration'
 
 java {
     toolchain {

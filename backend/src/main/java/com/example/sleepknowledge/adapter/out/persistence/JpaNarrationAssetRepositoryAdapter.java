@@ -31,41 +31,70 @@ public class JpaNarrationAssetRepositoryAdapter implements NarrationAssetReposit
             UUID contentId,
             UUID generationId,
             Instant sourceUpdatedAt,
+            String voiceId,
             Instant updatedAt
     ) {
         int resetCount = repository.resetExisting(
                 contentId,
                 generationId,
                 sourceUpdatedAt,
+                voiceId,
                 NarrationStatus.PENDING,
                 NarrationDefaults.SPEED,
                 updatedAt
         );
         if (resetCount == 0) {
-            repository.save(NarrationJpaEntity.pending(contentId, generationId, sourceUpdatedAt, updatedAt));
+            repository.save(NarrationJpaEntity.pending(
+                    contentId, generationId, sourceUpdatedAt, voiceId, updatedAt
+            ));
         }
-        return pendingState(contentId, generationId, sourceUpdatedAt, updatedAt);
+        return pendingState(contentId, generationId, sourceUpdatedAt, voiceId, updatedAt);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Optional<NarrationState> findState(UUID contentId) {
-        return repository.findStateProjection(contentId).map(projection -> new NarrationState(
-                projection.getContentId(),
-                projection.getGenerationId(),
-                projection.getSourceUpdatedAt(),
-                projection.getStatus(),
-                projection.getErrorMessage(),
-                projection.getUpdatedAt(),
-                projection.getAudioAvailable()
-        ));
+        return repository.findStateProjection(contentId).map(projection -> {
+            if (projection.getSelectedVoiceId() == null || projection.getSelectedVoiceId().isBlank()) {
+                // 이전 자동 생성 버전에서 voice 선택 전 멈춘 row는 새 흐름의 미요청 상태로 읽습니다.
+                return NarrationState.notRequested(
+                        projection.getContentId(),
+                        projection.getSourceUpdatedAt()
+                );
+            }
+            return new NarrationState(
+                    projection.getContentId(),
+                    projection.getGenerationId(),
+                    projection.getSourceUpdatedAt(),
+                    projection.getStatus(),
+                    projection.getSelectedVoiceId(),
+                    projection.getErrorMessage(),
+                    projection.getUpdatedAt(),
+                    projection.getAudioAvailable()
+            );
+        });
     }
 
     @Override
     @Transactional(readOnly = true)
     public Optional<AudioContent> findReadyAudio(UUID contentId) {
-        return repository.findReadyAudioProjection(contentId, NarrationStatus.READY)
-                .map(projection -> AudioContent.wav(projection.getAudioBytes()));
+        return repository.findReadyAudioProjection(
+                        contentId,
+                        NarrationStatus.READY,
+                        AudioContent.MP3_MEDIA_TYPE
+                )
+                .map(projection -> {
+                    if (!AudioContent.MP3_MEDIA_TYPE.equals(projection.getMediaType())) {
+                        throw new IllegalStateException("ready narration is not MP3");
+                    }
+                    return AudioContent.mp3(projection.getAudioBytes());
+                });
+    }
+
+    @Override
+    @Transactional
+    public void deleteByContentId(UUID contentId) {
+        repository.deleteById(contentId);
     }
 
     @Override
@@ -90,6 +119,9 @@ public class JpaNarrationAssetRepositoryAdapter implements NarrationAssetReposit
             AudioContent audio,
             Instant updatedAt
     ) {
+        if (!AudioContent.MP3_MEDIA_TYPE.equals(audio.mediaType())) {
+            throw new IllegalArgumentException("only audio/mpeg narration assets can be persisted");
+        }
         Optional<NarrationJpaEntity> entity = repository.findByIdForUpdate(contentId);
         if (entity.isEmpty() || !entity.get().matchesProcessingGeneration(generationId)) {
             return false;
@@ -115,6 +147,7 @@ public class JpaNarrationAssetRepositoryAdapter implements NarrationAssetReposit
             UUID contentId,
             UUID generationId,
             Instant sourceUpdatedAt,
+            String voiceId,
             Instant updatedAt
     ) {
         return new NarrationState(
@@ -122,6 +155,7 @@ public class JpaNarrationAssetRepositoryAdapter implements NarrationAssetReposit
                 generationId,
                 sourceUpdatedAt,
                 NarrationStatus.PENDING,
+                voiceId,
                 null,
                 updatedAt,
                 false

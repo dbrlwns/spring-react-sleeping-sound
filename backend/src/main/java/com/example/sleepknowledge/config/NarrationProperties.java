@@ -4,47 +4,58 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import java.time.Duration;
 
-/** composition root가 TTS adapter를 선택하고 구성할 때 사용하는 운영 설정입니다. */
+/** composition root가 Google Chirp3 TTS adapter를 구성할 때 사용하는 운영 설정입니다. */
 @ConfigurationProperties("app.narration")
 public record NarrationProperties(
-        Provider provider,
-        MacOsSay macosSay,
-        GoogleChirp3 googleChirp3
+        GoogleChirp3 googleChirp3,
+        Ffmpeg ffmpeg
 ) {
 
     public NarrationProperties {
-        provider = provider == null ? Provider.MACOS_SAY : provider;
-        macosSay = macosSay == null ? new MacOsSay(null, null, null) : macosSay;
         googleChirp3 = googleChirp3 == null
-                ? new GoogleChirp3(null, null, null, null, null, null, null)
+                ? new GoogleChirp3(null, null, null, null, null)
                 : googleChirp3;
+        ffmpeg = ffmpeg == null
+                ? new Ffmpeg(null, null, null, null)
+                : ffmpeg;
     }
 
-    public enum Provider {
-        MACOS_SAY,
-        GOOGLE_CHIRP3
-    }
+    public record Ffmpeg(
+            String command,
+            Duration timeout,
+            Integer maxOutputBytes,
+            Integer bitrateKbps
+    ) {
 
-    public record MacOsSay(String command, Integer baseWordsPerMinute, Duration timeout) {
+        public static final int MAX_BITRATE_KBPS = 320;
+        public static final int MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
+        public static final Duration MAX_TIMEOUT = Duration.ofHours(1);
 
-        public MacOsSay {
-            command = textOrDefault(command, "/usr/bin/say");
-            baseWordsPerMinute = baseWordsPerMinute == null ? 180 : baseWordsPerMinute;
+        public Ffmpeg {
+            command = textOrDefault(command, "ffmpeg");
             timeout = timeout == null ? Duration.ofMinutes(5) : timeout;
+            maxOutputBytes = maxOutputBytes == null ? 64 * 1024 * 1024 : maxOutputBytes;
+            bitrateKbps = bitrateKbps == null ? 64 : bitrateKbps;
 
-            if (baseWordsPerMinute <= 0) {
+            requirePositive(timeout, "app.narration.ffmpeg.timeout");
+            if (timeout.compareTo(MAX_TIMEOUT) > 0) {
+                throw new IllegalArgumentException("app.narration.ffmpeg.timeout must not exceed 1 hour");
+            }
+            if (maxOutputBytes <= 0 || maxOutputBytes > MAX_OUTPUT_BYTES) {
                 throw new IllegalArgumentException(
-                        "app.narration.macos-say.base-words-per-minute must be positive"
+                        "app.narration.ffmpeg.max-output-bytes must be between 1 and 536870912"
                 );
             }
-            requirePositive(timeout, "app.narration.macos-say.timeout");
+            if (bitrateKbps < 8 || bitrateKbps > MAX_BITRATE_KBPS) {
+                throw new IllegalArgumentException(
+                        "app.narration.ffmpeg.bitrate-kbps must be between 8 and 320"
+                );
+            }
         }
     }
 
     public record GoogleChirp3(
             String endpoint,
-            String languageCode,
-            String voiceName,
             Integer maxInputBytes,
             Integer maxChunks,
             Integer maxAudioBytes,
@@ -52,33 +63,29 @@ public record NarrationProperties(
     ) {
 
         public static final int CLOUD_TTS_MAX_INPUT_BYTES = 5_000;
+        public static final int MIN_UTF8_CODE_POINT_BYTES = 4;
+        public static final int MAX_CHUNKS = 64;
 
         public GoogleChirp3 {
             endpoint = textOrDefault(endpoint, "texttospeech.googleapis.com:443");
-            languageCode = textOrDefault(languageCode, "ko-KR");
-            voiceName = textOrDefault(voiceName, "ko-KR-Chirp3-HD-Kore");
             maxInputBytes = maxInputBytes == null ? CLOUD_TTS_MAX_INPUT_BYTES : maxInputBytes;
             maxChunks = maxChunks == null ? 32 : maxChunks;
-            maxAudioBytes = maxAudioBytes == null ? 256 * 1024 * 1024 : maxAudioBytes;
-            rpcTimeout = rpcTimeout == null ? Duration.ofSeconds(30) : rpcTimeout;
+            maxAudioBytes = maxAudioBytes == null ? 128 * 1024 * 1024 : maxAudioBytes;
+            rpcTimeout = rpcTimeout == null ? Duration.ofMinutes(30) : rpcTimeout;
 
-            if (maxInputBytes < 1 || maxInputBytes > CLOUD_TTS_MAX_INPUT_BYTES) {
+            if (maxInputBytes < MIN_UTF8_CODE_POINT_BYTES || maxInputBytes > CLOUD_TTS_MAX_INPUT_BYTES) {
                 throw new IllegalArgumentException(
-                        "app.narration.google-chirp3.max-input-bytes must be between 1 and 5000"
+                        "app.narration.google-chirp3.max-input-bytes must be between 4 and 5000"
                 );
             }
-            if (maxChunks <= 0) {
-                throw new IllegalArgumentException("app.narration.google-chirp3.max-chunks must be positive");
+            if (maxChunks <= 0 || maxChunks > MAX_CHUNKS) {
+                throw new IllegalArgumentException(
+                        "app.narration.google-chirp3.max-chunks must be between 1 and 64"
+                );
             }
             if (maxAudioBytes <= 0 || maxAudioBytes > Integer.MAX_VALUE - 44) {
                 throw new IllegalArgumentException(
                         "app.narration.google-chirp3.max-audio-bytes is outside the supported WAV range"
-                );
-            }
-            String expectedVoicePrefix = languageCode + "-Chirp3-HD-";
-            if (!voiceName.regionMatches(true, 0, expectedVoicePrefix, 0, expectedVoicePrefix.length())) {
-                throw new IllegalArgumentException(
-                        "app.narration.google-chirp3.voice-name must match the configured language-code"
                 );
             }
             requirePositive(rpcTimeout, "app.narration.google-chirp3.rpc-timeout");

@@ -2,6 +2,10 @@ package com.example.sleepknowledge.adapter.in.web;
 
 import com.example.sleepknowledge.application.exception.ContentNotFoundException;
 import com.example.sleepknowledge.application.exception.NarrationNotReadyException;
+import com.example.sleepknowledge.application.exception.NarrationAlreadySupportedException;
+import com.example.sleepknowledge.application.exception.NarrationProposalAlreadyPendingException;
+import com.example.sleepknowledge.application.exception.NarrationProposalConflictException;
+import com.example.sleepknowledge.application.exception.NarrationProposalNotFoundException;
 import com.example.sleepknowledge.application.exception.SpeechSynthesisException;
 import com.example.sleepknowledge.application.exception.UnsupportedVoiceException;
 import com.example.sleepknowledge.authentication.UsernameAlreadyExistsException;
@@ -72,6 +76,30 @@ public class ApiExceptionHandler {
                 exception.getMessage()
         );
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem);
+    }
+
+    @ExceptionHandler(NarrationProposalNotFoundException.class)
+    public ResponseEntity<ProblemDetail> handleProposalNotFound(NarrationProposalNotFoundException exception) {
+        ProblemDetail problem = problem(
+                HttpStatus.NOT_FOUND,
+                "음성 지원 제안을 찾을 수 없습니다.",
+                exception.getMessage()
+        );
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem);
+    }
+
+    @ExceptionHandler({
+            NarrationProposalAlreadyPendingException.class,
+            NarrationProposalConflictException.class,
+            NarrationAlreadySupportedException.class
+    })
+    public ResponseEntity<ProblemDetail> handleProposalConflict(RuntimeException exception) {
+        ProblemDetail problem = problem(
+                HttpStatus.CONFLICT,
+                "음성 지원 제안을 처리할 수 없습니다.",
+                exception.getMessage()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem);
     }
 
     @ExceptionHandler(AuthenticationException.class)

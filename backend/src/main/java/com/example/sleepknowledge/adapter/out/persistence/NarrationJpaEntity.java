@@ -4,6 +4,7 @@ import com.example.sleepknowledge.domain.model.AudioContent;
 import com.example.sleepknowledge.domain.model.NarrationDefaults;
 import com.example.sleepknowledge.domain.model.NarrationOptions;
 import com.example.sleepknowledge.domain.model.NarrationStatus;
+import com.example.sleepknowledge.domain.model.NarrationVoiceOption;
 import com.example.sleepknowledge.domain.model.Voice;
 import jakarta.persistence.Basic;
 import jakarta.persistence.Column;
@@ -65,12 +66,14 @@ class NarrationJpaEntity {
             UUID contentId,
             UUID generationId,
             Instant sourceUpdatedAt,
+            String voiceId,
             Instant updatedAt
     ) {
         this.contentId = contentId;
         this.generationId = generationId;
         this.sourceUpdatedAt = sourceUpdatedAt;
         this.status = NarrationStatus.PENDING;
+        this.voiceId = NarrationVoiceOption.fromVoiceId(voiceId).voiceId();
         this.speed = NarrationDefaults.SPEED;
         this.audioAvailable = false;
         this.updatedAt = updatedAt;
@@ -80,9 +83,10 @@ class NarrationJpaEntity {
             UUID contentId,
             UUID generationId,
             Instant sourceUpdatedAt,
+            String voiceId,
             Instant updatedAt
     ) {
-        return new NarrationJpaEntity(contentId, generationId, sourceUpdatedAt, updatedAt);
+        return new NarrationJpaEntity(contentId, generationId, sourceUpdatedAt, voiceId, updatedAt);
     }
 
     boolean matchesProcessingGeneration(UUID expectedGenerationId) {
@@ -90,6 +94,9 @@ class NarrationJpaEntity {
     }
 
     void complete(Voice voice, NarrationOptions options, AudioContent audio, Instant completedAt) {
+        if (!AudioContent.MP3_MEDIA_TYPE.equals(audio.mediaType())) {
+            throw new IllegalArgumentException("only audio/mpeg narration assets can be persisted");
+        }
         this.status = NarrationStatus.READY;
         this.voiceId = voice.id();
         this.speed = options.speed();

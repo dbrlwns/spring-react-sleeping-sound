@@ -42,6 +42,8 @@ public class SecurityConfiguration {
     private static final String CONTENT_DETAIL_ENDPOINT = "/api/v1/contents/*";
     private static final String NARRATION_STATUS_ENDPOINT = "/api/v1/contents/*/narration/status";
     private static final String NARRATION_AUDIO_ENDPOINT = "/api/v1/contents/*/narration/audio";
+    private static final String LATEST_NARRATION_PROPOSAL_ENDPOINT =
+            "/api/v1/contents/*/narration-proposals/latest";
 
     @Bean
     PasswordEncoder passwordEncoder() {
@@ -54,17 +56,12 @@ public class SecurityConfiguration {
     }
 
     @Bean
-    DaoAuthenticationProvider daoAuthenticationProvider(
+    AuthenticationManager authenticationManager(
             UserDetailsService userDetailsService,
             PasswordEncoder passwordEncoder
     ) {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider(userDetailsService);
         provider.setPasswordEncoder(passwordEncoder);
-        return provider;
-    }
-
-    @Bean
-    AuthenticationManager authenticationManager(DaoAuthenticationProvider provider) {
         return new ProviderManager(provider);
     }
 
@@ -119,9 +116,11 @@ public class SecurityConfiguration {
                                 CONTENTS_ENDPOINT,
                                 CONTENT_DETAIL_ENDPOINT,
                                 NARRATION_STATUS_ENDPOINT,
-                                NARRATION_AUDIO_ENDPOINT
+                                NARRATION_AUDIO_ENDPOINT,
+                                LATEST_NARRATION_PROPOSAL_ENDPOINT
                         ).permitAll()
                         .requestMatchers(HttpMethod.POST, REGISTER_ENDPOINT, LOGIN_ENDPOINT, LOGOUT_ENDPOINT).permitAll()
+                        .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll()
                 )

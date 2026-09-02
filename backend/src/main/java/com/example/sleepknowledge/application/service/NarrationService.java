@@ -12,6 +12,7 @@ import com.example.sleepknowledge.domain.model.AudioContent;
 import com.example.sleepknowledge.domain.model.Episode;
 import com.example.sleepknowledge.domain.model.NarrationState;
 import com.example.sleepknowledge.domain.model.NarrationStatus;
+import com.example.sleepknowledge.domain.model.NarrationVoiceOption;
 import com.example.sleepknowledge.domain.model.Voice;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -29,43 +30,32 @@ public class NarrationService implements BrowseNarrationUseCase, ListNarrationVo
 
     private final ContentRepositoryPort contentRepository;
     private final NarrationAssetRepositoryPort narrationRepository;
-    private final SpeechSynthesisPort speechSynthesisPort;
-    private final ApplicationEventPublisher eventPublisher;
-    private final Clock clock;
 
     public NarrationService(
             ContentRepositoryPort contentRepository,
-            NarrationAssetRepositoryPort narrationRepository,
-            SpeechSynthesisPort speechSynthesisPort,
-            ApplicationEventPublisher eventPublisher,
-            Clock clock
+            NarrationAssetRepositoryPort narrationRepository
     ) {
         this.contentRepository = contentRepository;
         this.narrationRepository = narrationRepository;
-        this.speechSynthesisPort = speechSynthesisPort;
-        this.eventPublisher = eventPublisher;
-        this.clock = clock;
     }
 
     @Override
     public List<Voice> listVoices() {
-        return speechSynthesisPort.findAvailableVoices();
+        return NarrationVoiceOption.voices();
     }
 
     @Override
-    @Transactional
     public NarrationState getNarrationStatus(UUID contentId) {
         Episode episode = contentRepository.findById(contentId)
                 .orElseThrow(() -> new ContentNotFoundException(contentId));
-        return ensureCurrentGeneration(episode);
+        return currentState(episode);
     }
 
     @Override
-    @Transactional(noRollbackFor = NarrationNotReadyException.class)
     public AudioContent getNarrationAudio(UUID contentId) {
         Episode episode = contentRepository.findById(contentId)
                 .orElseThrow(() -> new ContentNotFoundException(contentId));
-        NarrationState state = ensureCurrentGeneration(episode);
+        NarrationState state = currentState(episode);
         if (state.status() != NarrationStatus.READY) {
             throw new NarrationNotReadyException(contentId, state.status());
         }
@@ -74,28 +64,8 @@ public class NarrationService implements BrowseNarrationUseCase, ListNarrationVo
                 .orElseThrow(() -> new NarrationNotReadyException(contentId, state.status()));
     }
 
-    private NarrationState ensureCurrentGeneration(Episode episode) {
-        Optional<NarrationState> existing = narrationRepository.findState(episode.id());
-        NarrationState state;
-        if (existing.isEmpty() || !existing.get().sourceUpdatedAt().equals(episode.updatedAt())) {
-            state = narrationRepository.resetToPending(
-                    episode.id(),
-                    UUID.randomUUID(),
-                    episode.updatedAt(),
-                    clock.instant()
-            );
-        } else {
-            state = existing.get();
-        }
-
-        if (state.status() == NarrationStatus.PENDING) {
-            eventPublisher.publishEvent(new NarrationGenerationRequested(
-                    state.contentId(),
-                    state.generationId(),
-                    state.sourceUpdatedAt()
-            ));
-        }
-
-        return state;
+    private NarrationState currentState(Episode episode) {
+        return narrationRepository.findState(episode.id())
+                .orElseGet(() -> NarrationState.notRequested(episode.id(), episode.updatedAt()));
     }
 }

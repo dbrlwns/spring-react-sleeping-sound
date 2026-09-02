@@ -7,6 +7,7 @@ import java.time.Instant;
 
 public record NarrationStatusResponse(
         NarrationStatus status,
+        String selectedVoiceId,
         String errorMessage,
         Instant updatedAt,
         String audioUrl
@@ -18,6 +19,7 @@ public record NarrationStatusResponse(
                 : null;
         return new NarrationStatusResponse(
                 state.status(),
+                state.selectedVoiceId(),
                 state.errorMessage(),
                 state.updatedAt(),
                 audioUrl

@@ -6,7 +6,9 @@ import com.example.sleepknowledge.application.port.out.SpeechSynthesisPort;
 import com.example.sleepknowledge.domain.model.AudioContent;
 import com.example.sleepknowledge.domain.model.ContentCategory;
 import com.example.sleepknowledge.domain.model.NarrationOptions;
+import com.example.sleepknowledge.domain.model.NarrationVoiceOption;
 import com.example.sleepknowledge.domain.model.Voice;
+import com.google.cloud.texttospeech.v1.TextToSpeechClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -18,6 +20,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.List;
 import java.util.UUID;
@@ -47,6 +50,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(ContentApiIntegrationTest.FakePortConfiguration.class)
 class ContentApiIntegrationTest {
 
+    @MockitoBean
+    private TextToSpeechClient textToSpeechClient;
+
     private final MockMvc mockMvc;
     private final ContentRepositoryPort contentRepository;
     private final FakeSpeechSynthesisPort speechSynthesisPort;
@@ -69,6 +75,7 @@ class ContentApiIntegrationTest {
                 .andExpect(jsonPath("$.contents.length()").value(greaterThanOrEqualTo(2)))
                 .andExpect(jsonPath("$.contents[0].id").exists())
                 .andExpect(jsonPath("$.contents[0].category").exists())
+                .andExpect(jsonPath("$.contents[0].authorUsername").isNotEmpty())
                 .andExpect(content().string(not(containsString("\"script\""))));
     }
 
@@ -78,6 +85,8 @@ class ContentApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(ContentSeedData.QUANTUM_EPISODE_ID.toString()))
                 .andExpect(jsonPath("$.category").value("SCIENCE"))
+                .andExpect(jsonPath("$.authorUsername")
+                        .value(com.example.sleepknowledge.domain.model.Episode.LEGACY_AUTHOR_USERNAME))
                 .andExpect(jsonPath("$.script").isNotEmpty());
     }
 
@@ -90,7 +99,8 @@ class ContentApiIntegrationTest {
                                   "title":"도시의 밤",
                                   "summary":"도시에서 사람들이 관계를 맺는 방식을 살펴봅니다.",
                                   "category":"SOCIETY",
-                                  "script":"불이 켜진 도시의 골목을 따라 사람과 사회의 연결을 살펴봅니다."
+                                  "script":"불이 켜진 도시의 골목을 따라 사람과 사회의 연결을 살펴봅니다.",
+                                  "authorUsername":"클라이언트가 위조한 작성자"
                                 }
                                 """))
                 .andExpect(status().isCreated())
@@ -98,7 +108,49 @@ class ContentApiIntegrationTest {
                 .andExpect(jsonPath("$.id").exists())
                 .andExpect(jsonPath("$.title").value("도시의 밤"))
                 .andExpect(jsonPath("$.category").value("SOCIETY"))
+                .andExpect(jsonPath("$.authorUsername").value("integration-user"))
                 .andExpect(jsonPath("$.script").isNotEmpty());
+    }
+
+    @Test
+    void 다른_사용자가_콘텐츠를_수정해도_최초_작성자를_보존한다() throws Exception {
+        MvcResult created = mockMvc.perform(post("/api/v1/contents")
+                        .with(user("first-author")).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(contentRequestWithScript("작성자 보존 이야기", "처음 원고입니다.")))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String contentPath = created.getResponse().getHeader("Location");
+
+        mockMvc.perform(put(contentPath)
+                        .with(user("second-editor")).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(contentRequestWithScript("수정된 이야기", "수정 원고입니다.")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authorUsername").value("first-author"));
+    }
+
+    @Test
+    void 콘텐츠_원고는_공백을_포함해_5000자까지_허용한다() throws Exception {
+        String script = "가" + " ".repeat(4_998) + "나";
+
+        mockMvc.perform(post("/api/v1/contents").with(user("integration-user")).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(contentRequestWithScript("경계 길이 원고", script)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.script").value(script));
+    }
+
+    @Test
+    void 콘텐츠_원고는_공백을_포함해_5001자부터_거절한다() throws Exception {
+        String script = "가" + " ".repeat(4_999) + "나";
+
+        mockMvc.perform(post("/api/v1/contents").with(user("integration-user")).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(contentRequestWithScript("제한 초과 원고", script)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.errors.script").value("원고는 5000자 이하여야 합니다."));
     }
 
     @Test
@@ -151,73 +203,52 @@ class ContentApiIntegrationTest {
     }
 
     @Test
-    void 콘텐츠를_수정하면_기존_wav를_즉시_무효화하고_다시_생성한다() throws Exception {
+    void 콘텐츠_원고를_수정해도_자동_TTS를_실행하지_않는다() throws Exception {
         String narrationPath = "/api/v1/contents/" + ContentSeedData.COSMOS_EPISODE_ID + "/narration";
-        awaitReady(narrationPath + "/status");
         String updatedScript = "고요한 밤, 은하 사이 공간이 늘어나는 새 모습을 상상해 봅니다.";
-        speechSynthesisPort.blockSynthesisFor(updatedScript);
 
-        try {
-            mockMvc.perform(put("/api/v1/contents/{id}", ContentSeedData.COSMOS_EPISODE_ID)
-                            .with(user("integration-user")).with(csrf())
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("""
-                                    {
-                                      "title":"수정된 우주 이야기",
-                                      "summary":"팽창하는 우주를 다시 설명합니다.",
-                                      "category":"COSMOLOGY",
-                                      "script":"고요한 밤, 은하 사이 공간이 늘어나는 새 모습을 상상해 봅니다."
-                                    }
-                                    """))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.id").value(ContentSeedData.COSMOS_EPISODE_ID.toString()))
-                    .andExpect(jsonPath("$.title").value("수정된 우주 이야기"));
+        mockMvc.perform(put("/api/v1/contents/{id}", ContentSeedData.COSMOS_EPISODE_ID)
+                        .with(user("integration-user")).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title":"수정된 우주 이야기",
+                                  "summary":"팽창하는 우주를 다시 설명합니다.",
+                                  "category":"COSMOLOGY",
+                                  "script":"고요한 밤, 은하 사이 공간이 늘어나는 새 모습을 상상해 봅니다."
+                                }
+                                """))
+                .andExpect(status().isOk());
 
-            assertThatSynthesisStarted();
-            mockMvc.perform(get(narrationPath + "/status").with(user("integration-user")))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.status").value("PROCESSING"))
-                    .andExpect(header().string("Cache-Control", "no-store"));
-            mockMvc.perform(get(narrationPath + "/audio").with(user("integration-user")))
-                    .andExpect(status().isConflict())
-                    .andExpect(jsonPath("$.status").value("PROCESSING"));
-        } finally {
-            speechSynthesisPort.releaseBlockedSynthesis();
-        }
-
-        awaitReady(narrationPath + "/status");
-        mockMvc.perform(get(narrationPath + "/audio"))
-                .andExpect(status().isOk())
-                .andExpect(content().bytes(new byte[]{82, 73, 70, 70}));
-    }
-
-    @Test
-    void 익명으로_내레이션_상태와_저장된_wav를_조회한다() throws Exception {
-        String narrationPath = "/api/v1/contents/" + ContentSeedData.QUANTUM_EPISODE_ID + "/narration";
-
-        awaitReady(narrationPath + "/status");
         mockMvc.perform(get(narrationPath + "/status"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("READY"))
-                .andExpect(jsonPath("$.audioUrl").value(narrationPath + "/audio"))
-                .andExpect(jsonPath("$.updatedAt").exists());
-        mockMvc.perform(get(narrationPath + "/audio"))
-                .andExpect(status().isOk())
-                .andExpect(content().contentType("audio/wav"))
-                .andExpect(content().bytes(new byte[]{82, 73, 70, 70}))
-                .andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(header().string("Content-Disposition", containsString("narration-")));
+                .andExpect(jsonPath("$.status").value("NOT_REQUESTED"));
+        assertThat(speechSynthesisPort.lastSynthesizedScript()).isNotEqualTo(updatedScript);
     }
 
     @Test
-    void 콘텐츠_생성_commit_후_자동_내레이션을_비동기로_저장한다() throws Exception {
+    void 익명_상태_GET은_asset을_자동_생성하지_않는다() throws Exception {
+        String narrationPath = "/api/v1/contents/" + ContentSeedData.QUANTUM_EPISODE_ID + "/narration";
+
+        mockMvc.perform(get(narrationPath + "/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NOT_REQUESTED"))
+                .andExpect(jsonPath("$.audioUrl").doesNotExist())
+                .andExpect(jsonPath("$.updatedAt").exists());
+        mockMvc.perform(get(narrationPath + "/audio"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value("NOT_REQUESTED"));
+    }
+
+    @Test
+    void 콘텐츠를_생성해도_자동_내레이션을_만들지_않는다() throws Exception {
         MvcResult created = mockMvc.perform(post("/api/v1/contents")
                         .with(user("integration-user")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "title":"자동 내레이션 이야기",
-                                  "summary":"저장 직후 자동으로 생성됩니다.",
+                                  "title":"제안 대기 이야기",
+                                  "summary":"관리자 승인 전에는 생성되지 않습니다.",
                                   "category":"GENERAL_SCIENCE",
                                   "script":"트랜잭션이 끝난 뒤 이 원고를 읽습니다."
                                 }
@@ -226,37 +257,30 @@ class ContentApiIntegrationTest {
                 .andReturn();
         String contentPath = created.getResponse().getHeader("Location");
 
-        awaitReady(contentPath + "/narration/status")
-                .andExpect(jsonPath("$.audioUrl").value(contentPath + "/narration/audio"));
-        mockMvc.perform(get(contentPath + "/narration/audio").with(user("integration-user")))
+        mockMvc.perform(get(contentPath + "/narration/status"))
                 .andExpect(status().isOk())
-                .andExpect(content().bytes(new byte[]{82, 73, 70, 70}));
+                .andExpect(jsonPath("$.status").value("NOT_REQUESTED"));
     }
 
     @Test
-    void 자동_합성_실패는_errorMessage와_failed_상태로_저장한다() throws Exception {
-        String failedScript = "이 원고는 테스트 공급자 실패를 재현합니다.";
-        speechSynthesisPort.failSynthesisFor(failedScript);
+    void 공개_latest_제안은_없으면_204를_반환한다() throws Exception {
         MvcResult created = mockMvc.perform(post("/api/v1/contents")
                         .with(user("integration-user")).with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "title":"실패 상태 이야기",
-                                  "summary":"실패 상태 저장을 확인합니다.",
+                                  "title":"아직 제안 없는 이야기",
+                                  "summary":"제안 상태 조회를 확인합니다.",
                                   "category":"GENERAL_SCIENCE",
-                                  "script":"이 원고는 테스트 공급자 실패를 재현합니다."
+                                  "script":"아직 음성 지원 제안이 없습니다."
                                 }
                                 """))
                 .andExpect(status().isCreated())
                 .andReturn();
-        String narrationPath = created.getResponse().getHeader("Location") + "/narration";
+        String contentPath = created.getResponse().getHeader("Location");
 
-        awaitStatus(narrationPath + "/status", "FAILED")
-                .andExpect(jsonPath("$.errorMessage").value("테스트 공급자 실패"));
-        mockMvc.perform(get(narrationPath + "/audio").with(user("integration-user")))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.status").value("FAILED"));
+        mockMvc.perform(get(contentPath + "/narration-proposals/latest"))
+                .andExpect(status().isNoContent());
     }
 
     @Test
@@ -272,8 +296,9 @@ class ContentApiIntegrationTest {
     void 내레이션용_음성_목록을_조회한다() throws Exception {
         mockMvc.perform(get("/api/v1/narration/voices").with(user("integration-user")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.voices[0].id").value("Yuna"))
-                .andExpect(jsonPath("$.voices[0].locale").value("ko_KR"));
+                .andExpect(jsonPath("$.voices.length()").value(6))
+                .andExpect(jsonPath("$.voices[0].id").value("ko-KR-Chirp3-HD-Kore"))
+                .andExpect(jsonPath("$.voices[0].locale").value("ko-KR"));
     }
 
     @Test
@@ -334,20 +359,32 @@ class ContentApiIntegrationTest {
                 .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
     }
 
+    private String contentRequestWithScript(String title, String script) {
+        return """
+                {
+                  "title":"%s",
+                  "summary":"원고 길이 제한의 경계를 확인합니다.",
+                  "category":"SCIENCE",
+                  "script":"%s"
+                }
+                """.formatted(title, script);
+    }
+
     static final class FakeSpeechSynthesisPort implements SpeechSynthesisPort {
-        private final Voice yuna = new Voice("Yuna", "Yuna", "한국어 음성", "ko_KR");
         private volatile String blockedScript;
         private volatile String failedScript;
+        private volatile String lastSynthesizedScript;
         private volatile CountDownLatch synthesisStarted = new CountDownLatch(0);
         private volatile CountDownLatch synthesisRelease = new CountDownLatch(0);
 
         @Override
         public List<Voice> findAvailableVoices() {
-            return List.of(yuna);
+            return NarrationVoiceOption.voices();
         }
 
         @Override
         public AudioContent synthesize(String script, NarrationOptions options, Voice voice) {
+            lastSynthesizedScript = script;
             if (script.equals(failedScript)) {
                 failedScript = null;
                 throw new IllegalStateException("테스트 공급자 실패");
@@ -365,7 +402,7 @@ class ContentApiIntegrationTest {
                     blockedScript = null;
                 }
             }
-            return AudioContent.wav(new byte[]{82, 73, 70, 70});
+            return AudioContent.linear16Wav(new byte[]{82, 73, 70, 70});
         }
 
         void blockSynthesisFor(String script) {
@@ -384,6 +421,10 @@ class ContentApiIntegrationTest {
 
         void releaseBlockedSynthesis() {
             synthesisRelease.countDown();
+        }
+
+        String lastSynthesizedScript() {
+            return lastSynthesizedScript;
         }
     }
 

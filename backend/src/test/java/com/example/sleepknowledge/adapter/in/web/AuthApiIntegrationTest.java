@@ -1,6 +1,7 @@
 package com.example.sleepknowledge.adapter.in.web;
 
 import com.jayway.jsonpath.JsonPath;
+import com.google.cloud.texttospeech.v1.TextToSpeechClient;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
@@ -31,6 +33,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc
 class AuthApiIntegrationTest {
+
+    @MockitoBean
+    private TextToSpeechClient textToSpeechClient;
 
     private final MockMvc mockMvc;
     private final FilterChainProxy springSecurityFilterChain;
@@ -97,6 +102,7 @@ class AuthApiIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.authenticated").value(true))
                 .andExpect(jsonPath("$.username").value("quiet-reader"))
+                .andExpect(jsonPath("$.role").value("USER"))
                 .andExpect(cookie().maxAge("XSRF-TOKEN", 0))
                 .andReturn();
 

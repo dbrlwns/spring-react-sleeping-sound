@@ -20,7 +20,7 @@ public record ContentRequest(
         ContentCategory category,
 
         @NotBlank(message = "원고를 입력해 주세요.")
-        @Size(max = EpisodeDraft.MAX_SCRIPT_LENGTH, message = "원고는 20000자 이하여야 합니다.")
+        @Size(max = EpisodeDraft.MAX_SCRIPT_LENGTH, message = "원고는 5000자 이하여야 합니다.")
         String script
 ) {
 

@@ -1,7 +1,6 @@
 package com.example.sleepknowledge.application.service;
 
 import com.example.sleepknowledge.application.exception.ContentNotFoundException;
-import com.example.sleepknowledge.application.event.NarrationGenerationRequested;
 import com.example.sleepknowledge.application.port.in.BrowseContentUseCase;
 import com.example.sleepknowledge.application.port.in.CreateContentUseCase;
 import com.example.sleepknowledge.application.port.in.UpdateContentUseCase;
@@ -10,7 +9,6 @@ import com.example.sleepknowledge.application.port.out.NarrationAssetRepositoryP
 import com.example.sleepknowledge.domain.model.Episode;
 import com.example.sleepknowledge.domain.model.EpisodeDraft;
 import com.example.sleepknowledge.domain.model.NarrationState;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,18 +24,15 @@ public class ContentService implements BrowseContentUseCase, CreateContentUseCas
 
     private final ContentRepositoryPort contentRepository;
     private final NarrationAssetRepositoryPort narrationRepository;
-    private final ApplicationEventPublisher eventPublisher;
     private final Clock clock;
 
     public ContentService(
             ContentRepositoryPort contentRepository,
             NarrationAssetRepositoryPort narrationRepository,
-            ApplicationEventPublisher eventPublisher,
             Clock clock
     ) {
         this.contentRepository = contentRepository;
         this.narrationRepository = narrationRepository;
-        this.eventPublisher = eventPublisher;
         this.clock = clock;
     }
 
@@ -54,33 +49,22 @@ public class ContentService implements BrowseContentUseCase, CreateContentUseCas
 
     @Override
     @Transactional
-    public Episode createContent(EpisodeDraft draft) {
+    public Episode createContent(EpisodeDraft draft, String authorUsername) {
         Instant now = clock.instant();
-        Episode created = contentRepository.save(Episode.create(UUID.randomUUID(), draft, now));
-        resetAndRequestNarration(created);
-        return created;
+        return contentRepository.save(Episode.create(UUID.randomUUID(), draft, authorUsername, now));
     }
 
     @Override
     @Transactional
     public Episode updateContent(UUID contentId, EpisodeDraft draft) {
-        Episode existing = getContent(contentId);
+        Episode existing = contentRepository.findByIdForUpdate(contentId)
+                .orElseThrow(() -> new ContentNotFoundException(contentId));
+        // 수정 요청을 보낸 계정과 무관하게 최초 작성자는 Episode.update가 그대로 보존합니다.
         Episode updated = contentRepository.save(existing.update(draft, clock.instant()));
-        resetAndRequestNarration(updated);
+        if (!existing.script().equals(updated.script())) {
+            // 승인 당시 원고와 다른 MP3가 노출되지 않도록 즉시 제거하고 다시 제안받습니다.
+            narrationRepository.deleteByContentId(contentId);
+        }
         return updated;
-    }
-
-    private void resetAndRequestNarration(Episode episode) {
-        NarrationState state = narrationRepository.resetToPending(
-                episode.id(),
-                UUID.randomUUID(),
-                episode.updatedAt(),
-                clock.instant()
-        );
-        eventPublisher.publishEvent(new NarrationGenerationRequested(
-                state.contentId(),
-                state.generationId(),
-                state.sourceUpdatedAt()
-        ));
     }
 }

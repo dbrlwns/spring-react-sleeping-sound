@@ -5,6 +5,7 @@ import com.example.sleepknowledge.application.port.out.SpeechSynthesisPort;
 import com.example.sleepknowledge.config.NarrationProperties;
 import com.example.sleepknowledge.domain.model.AudioContent;
 import com.example.sleepknowledge.domain.model.NarrationOptions;
+import com.example.sleepknowledge.domain.model.NarrationVoiceOption;
 import com.example.sleepknowledge.domain.model.Voice;
 import com.google.api.gax.rpc.ApiException;
 import com.google.cloud.texttospeech.v1.AudioConfig;
@@ -19,11 +20,8 @@ import java.util.List;
 /** Google Cloud의 동기 Chirp 3 HD 합성을 SpeechSynthesisPort로 번역합니다. */
 public final class GoogleChirp3NarrationAdapter implements SpeechSynthesisPort {
 
-    private static final String VOICE_DESCRIPTION = "Google Cloud Chirp 3 HD";
-
     private final TextToSpeechClient client;
     private final NarrationProperties.GoogleChirp3 properties;
-    private final Voice configuredVoice;
 
     public GoogleChirp3NarrationAdapter(
             TextToSpeechClient client,
@@ -31,24 +29,24 @@ public final class GoogleChirp3NarrationAdapter implements SpeechSynthesisPort {
     ) {
         this.client = client;
         this.properties = properties;
-        this.configuredVoice = new Voice(
-                properties.voiceName(),
-                properties.voiceName(),
-                VOICE_DESCRIPTION,
-                properties.languageCode()
-        );
     }
 
     @Override
     public List<Voice> findAvailableVoices() {
-        // 설정된 voice만 반환해 자동 생성마다 별도의 ListVoices RPC를 호출하지 않는다.
-        return List.of(configuredVoice);
+        // 관리자가 선택할 수 있는 검토된 6종만 반환하며 별도의 ListVoices RPC는 호출하지 않습니다.
+        return NarrationVoiceOption.voices();
     }
 
     @Override
     public AudioContent synthesize(String script, NarrationOptions options, Voice voice) {
-        if (!configuredVoice.id().equals(voice.id()) || !configuredVoice.id().equals(options.voiceId())) {
-            throw new SpeechSynthesisException("설정된 Chirp 3 음성과 요청 음성이 일치하지 않습니다.");
+        final NarrationVoiceOption selectedVoice;
+        try {
+            selectedVoice = NarrationVoiceOption.fromVoiceId(options.voiceId());
+        } catch (IllegalArgumentException exception) {
+            throw new SpeechSynthesisException("허용되지 않은 Chirp 3 음성입니다.", exception);
+        }
+        if (!selectedVoice.voiceId().equals(voice.id())) {
+            throw new SpeechSynthesisException("승인된 Chirp 3 음성과 요청 음성이 일치하지 않습니다.");
         }
 
         final List<String> chunks;
@@ -62,8 +60,8 @@ public final class GoogleChirp3NarrationAdapter implements SpeechSynthesisPort {
         }
 
         VoiceSelectionParams voiceSelection = VoiceSelectionParams.newBuilder()
-                .setLanguageCode(properties.languageCode())
-                .setName(properties.voiceName())
+                .setLanguageCode(selectedVoice.toVoice().locale())
+                .setName(selectedVoice.voiceId())
                 .build();
         AudioConfig audioConfig = AudioConfig.newBuilder()
                 .setAudioEncoding(AudioEncoding.LINEAR16)
@@ -89,7 +87,7 @@ public final class GoogleChirp3NarrationAdapter implements SpeechSynthesisPort {
         }
 
         try {
-            return AudioContent.wav(Linear16Wav.merge(wavFiles, properties.maxAudioBytes()));
+            return AudioContent.linear16Wav(Linear16Wav.merge(wavFiles, properties.maxAudioBytes()));
         } catch (IllegalArgumentException exception) {
             throw new SpeechSynthesisException("Cloud TTS가 유효한 LINEAR16 WAV를 반환하지 않았습니다.", exception);
         }

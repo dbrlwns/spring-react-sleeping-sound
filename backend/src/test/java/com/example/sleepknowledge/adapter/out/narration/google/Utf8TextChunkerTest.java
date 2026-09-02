@@ -1,5 +1,6 @@
 package com.example.sleepknowledge.adapter.out.narration.google;
 
+import com.example.sleepknowledge.domain.model.EpisodeDraft;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -47,8 +48,8 @@ class Utf8TextChunkerTest {
     }
 
     @Test
-    void 기존_최대_원고_20000자도_Cloud_한도_안에서_분할한다() {
-        String text = "가".repeat(20_000);
+    void 현재_최대_원고_5000자도_Cloud_한도_안에서_분할한다() {
+        String text = "가".repeat(EpisodeDraft.MAX_SCRIPT_LENGTH);
 
         var chunks = Utf8TextChunker.split(text, 5_000);
 

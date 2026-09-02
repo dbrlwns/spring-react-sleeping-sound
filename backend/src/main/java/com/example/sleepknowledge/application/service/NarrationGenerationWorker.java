@@ -3,6 +3,7 @@ package com.example.sleepknowledge.application.service;
 import com.example.sleepknowledge.application.event.NarrationGenerationRequested;
 import com.example.sleepknowledge.application.exception.ContentNotFoundException;
 import com.example.sleepknowledge.application.exception.SpeechSynthesisException;
+import com.example.sleepknowledge.application.port.out.AudioTranscodingPort;
 import com.example.sleepknowledge.application.port.out.ContentRepositoryPort;
 import com.example.sleepknowledge.application.port.out.NarrationAssetRepositoryPort;
 import com.example.sleepknowledge.application.port.out.SpeechSynthesisPort;
@@ -17,7 +18,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.util.List;
-import java.util.Locale;
 
 /** 외부 TTS 호출 동안 DB transaction을 열어 두지 않는 백그라운드 worker입니다. */
 @Service
@@ -28,17 +28,20 @@ public class NarrationGenerationWorker {
     private final ContentRepositoryPort contentRepository;
     private final NarrationAssetRepositoryPort narrationRepository;
     private final SpeechSynthesisPort speechSynthesisPort;
+    private final AudioTranscodingPort audioTranscodingPort;
     private final Clock clock;
 
     public NarrationGenerationWorker(
             ContentRepositoryPort contentRepository,
             NarrationAssetRepositoryPort narrationRepository,
             SpeechSynthesisPort speechSynthesisPort,
+            AudioTranscodingPort audioTranscodingPort,
             Clock clock
     ) {
         this.contentRepository = contentRepository;
         this.narrationRepository = narrationRepository;
         this.speechSynthesisPort = speechSynthesisPort;
+        this.audioTranscodingPort = audioTranscodingPort;
         this.clock = clock;
     }
 
@@ -54,19 +57,28 @@ public class NarrationGenerationWorker {
         try {
             Episode episode = contentRepository.findById(request.contentId())
                     .orElseThrow(() -> new ContentNotFoundException(request.contentId()));
-            if (!episode.updatedAt().equals(request.sourceUpdatedAt())) {
-                throw new IllegalStateException("원고가 변경되어 이전 내레이션 결과를 폐기합니다.");
+            boolean stillCurrent = narrationRepository.findState(request.contentId())
+                    .map(state -> state.generationId().equals(request.generationId()))
+                    .orElse(false);
+            if (!stillCurrent) {
+                // 원고 수정으로 generation row가 제거/교체된 경우 비용이 드는 공급자 호출 전에 중단합니다.
+                return;
             }
-
-            Voice voice = selectDefaultVoice(speechSynthesisPort.findAvailableVoices());
+            // 로컬 FFmpeg 문제를 먼저 발견해 비용이 드는 Cloud TTS 호출을 피합니다.
+            audioTranscodingPort.verifyAvailable();
+            Voice voice = selectRequestedVoice(
+                    speechSynthesisPort.findAvailableVoices(),
+                    request.voiceId()
+            );
             NarrationOptions options = new NarrationOptions(voice.id(), NarrationDefaults.SPEED);
-            AudioContent audio = speechSynthesisPort.synthesize(episode.script(), options, voice);
+            AudioContent linear16Wav = speechSynthesisPort.synthesize(episode.script(), options, voice);
+            AudioContent mp3 = audioTranscodingPort.encodeMp3(linear16Wav);
             boolean stored = narrationRepository.markReady(
                     request.contentId(),
                     request.generationId(),
                     voice,
                     options,
-                    audio,
+                    mp3,
                     clock.instant()
             );
             if (!stored) {
@@ -89,18 +101,13 @@ public class NarrationGenerationWorker {
         }
     }
 
-    static Voice selectDefaultVoice(List<Voice> voices) {
+    static Voice selectRequestedVoice(List<Voice> voices, String voiceId) {
         if (voices == null || voices.isEmpty()) {
             throw new SpeechSynthesisException("사용 가능한 TTS 음성이 없습니다.");
         }
-
         return voices.stream()
-                .filter(NarrationGenerationWorker::isKoreanVoice)
+                .filter(voice -> voice.id().equals(voiceId))
                 .findFirst()
-                .orElse(voices.get(0));
-    }
-
-    private static boolean isKoreanVoice(Voice voice) {
-        return voice.locale().toLowerCase(Locale.ROOT).startsWith("ko");
+                .orElseThrow(() -> new SpeechSynthesisException("승인된 TTS 음성을 사용할 수 없습니다."));
     }
 }

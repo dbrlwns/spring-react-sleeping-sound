@@ -9,6 +9,7 @@ import com.example.sleepknowledge.application.port.in.UpdateContentUseCase;
 import com.example.sleepknowledge.domain.model.Episode;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -50,8 +51,12 @@ public class ContentController {
     }
 
     @PostMapping
-    public ResponseEntity<ContentDetailResponse> createContent(@Valid @RequestBody ContentRequest request) {
-        Episode created = createContentUseCase.createContent(request.toDraft());
+    public ResponseEntity<ContentDetailResponse> createContent(
+            @Valid @RequestBody ContentRequest request,
+            Authentication authentication
+    ) {
+        // 작성자는 클라이언트 JSON이 아니라 Spring Security가 검증한 principal에서만 가져옵니다.
+        Episode created = createContentUseCase.createContent(request.toDraft(), authentication.getName());
         return ResponseEntity.created(URI.create("/api/v1/contents/" + created.id()))
                 .body(ContentDetailResponse.from(created));
     }

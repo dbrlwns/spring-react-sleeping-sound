@@ -13,6 +13,9 @@ public interface ContentRepositoryPort {
 
     Optional<Episode> findById(UUID contentId);
 
+    /** 상태 변경 흐름에서 콘텐츠와 파생 asset의 순서를 직렬화합니다. */
+    Optional<Episode> findByIdForUpdate(UUID contentId);
+
     Episode save(Episode episode);
 
     long count();

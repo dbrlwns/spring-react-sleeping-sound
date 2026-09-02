@@ -12,6 +12,7 @@ public record ContentSummaryResponse(
         String title,
         String summary,
         ContentCategory category,
+        String authorUsername,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -22,6 +23,7 @@ public record ContentSummaryResponse(
                 episode.title(),
                 episode.summary(),
                 episode.category().canonical(),
+                episode.authorUsername(),
                 episode.createdAt(),
                 episode.updatedAt()
         );

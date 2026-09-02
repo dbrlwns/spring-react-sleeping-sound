@@ -13,27 +13,31 @@ spring:
     open-in-view: false
 
 server:
-  # 세션 인증을 사용하지만 운영용 권한·사용량 제한은 없으므로 기본값은 이 Mac 안에서만 접근합니다.
+  # 세션 인증을 사용하지만 운영용 권한·사용량 제한은 없으므로 기본값은 개발 머신 안에서만 접근합니다.
   address: 127.0.0.1
   port: 8080
 
 app:
+  security:
+    # 기존 가입 계정을 관리자 권한으로 승격합니다. 예: APP_SECURITY_ADMIN_USERNAMES=alice
+    admin-usernames: ["dbrlwns1"]
   cors:
     allowed-origins:
       - http://localhost:5173
       - http://127.0.0.1:5173
   narration:
-    # google-chirp3로 바꿀 때만 Google SDK가 ADC를 조회하고 원격 클라이언트를 생성합니다.
-    provider: macos-say
-    macos-say:
-      command: /usr/bin/say
-      base-words-per-minute: 180
-      timeout: 5m
+    # Google SDK는 Application Default Credentials(ADC)로 원격 클라이언트를 생성합니다.
     google-chirp3:
       endpoint: texttospeech.googleapis.com:443
-      language-code: ko-KR
-      voice-name: ko-KR-Chirp3-HD-Kore
       max-input-bytes: 5000
       max-chunks: 32
-      max-audio-bytes: 268435456
-      rpc-timeout: 30s
+      # PCM16 mono 24 kHz 기준 약 46분 분량이며, 30분 목표에 여유를 둔 메모리 상한입니다.
+      max-audio-bytes: 134217728
+      # 청크 하나의 최대 대기 시간입니다. 완성 음성의 길이를 정하는 값은 아닙니다.
+      rpc-timeout: 30m
+    # Google이 반환한 LINEAR16 WAV 청크를 합친 뒤, 저장 직전에 하나의 MP3로 인코딩합니다.
+    ffmpeg:
+      command: ffmpeg
+      timeout: 5m
+      max-output-bytes: 67108864
+      bitrate-kbps: 64

@@ -1,5 +1,6 @@
 package com.example.sleepknowledge.authentication;
 
+import com.example.sleepknowledge.config.SecurityProperties;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -22,21 +23,31 @@ public class AuthenticationService {
     private final UserAccountRepository userAccounts;
     private final PasswordEncoder passwordEncoder;
     private final Clock clock;
+    private final SecurityProperties securityProperties;
 
     public AuthenticationService(
             UserAccountRepository userAccounts,
             PasswordEncoder passwordEncoder,
-            Clock clock
+            Clock clock,
+            SecurityProperties securityProperties
     ) {
         this.userAccounts = userAccounts;
         this.passwordEncoder = passwordEncoder;
         this.clock = clock;
+        this.securityProperties = securityProperties;
     }
 
     @Transactional
     public void register(String username, String rawPassword) {
         String normalizedUsername = normalizeUsername(username);
         validatePassword(rawPassword);
+
+        // 관리자는 기존 일반 계정을 설정으로 승격합니다. 예약된 이름을 새로 선점할 수는 없습니다.
+        if (securityProperties.isAdmin(normalizedUsername)) {
+            throw new IllegalArgumentException(
+                    "관리자 사용자 이름은 먼저 일반 계정으로 가입한 뒤 서버 설정에서 지정해야 합니다."
+            );
+        }
 
         if (userAccounts.existsByUsername(normalizedUsername)) {
             throw new UsernameAlreadyExistsException();
@@ -62,9 +73,10 @@ public class AuthenticationService {
         UserAccount account = userAccounts.findByUsername(normalizedUsername)
                 .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다."));
 
+        UserRole role = securityProperties.isAdmin(account.username()) ? UserRole.ADMIN : UserRole.USER;
         return User.withUsername(account.username())
                 .password(account.passwordHash())
-                .roles("USER")
+                .roles(role.name())
                 .build();
     }
 

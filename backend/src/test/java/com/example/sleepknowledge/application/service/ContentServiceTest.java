@@ -1,17 +1,12 @@
 package com.example.sleepknowledge.application.service;
 
 import com.example.sleepknowledge.application.exception.ContentNotFoundException;
-import com.example.sleepknowledge.application.event.NarrationGenerationRequested;
 import com.example.sleepknowledge.application.port.out.ContentRepositoryPort;
 import com.example.sleepknowledge.application.port.out.NarrationAssetRepositoryPort;
-import com.example.sleepknowledge.domain.model.AudioContent;
 import com.example.sleepknowledge.domain.model.ContentCategory;
 import com.example.sleepknowledge.domain.model.Episode;
 import com.example.sleepknowledge.domain.model.EpisodeDraft;
-import com.example.sleepknowledge.domain.model.NarrationOptions;
-import com.example.sleepknowledge.domain.model.NarrationState;
-import com.example.sleepknowledge.domain.model.NarrationStatus;
-import com.example.sleepknowledge.domain.model.Voice;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
@@ -26,70 +21,70 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 class ContentServiceTest {
 
     private static final Instant NOW = Instant.parse("2026-08-20T12:00:00Z");
-    private final FakeContentRepository repository = new FakeContentRepository();
-    private final FakeNarrationRepository narrationRepository = new FakeNarrationRepository();
-    private final List<Object> publishedEvents = new ArrayList<>();
-    private final ContentService service = new ContentService(
-            repository,
-            narrationRepository,
-            publishedEvents::add,
-            Clock.fixed(NOW, ZoneOffset.UTC)
-    );
+    private InMemoryContentRepository contents;
+    private NarrationAssetRepositoryPort narrations;
+    private ContentService service;
 
-    @Test
-    void 콘텐츠를_생성하고_목록과_상세에서_조회한다() {
-        Episode created = service.createContent(draft("양자 이야기"));
-
-        assertThat(created.id()).isNotNull();
-        assertThat(created.createdAt()).isEqualTo(NOW);
-        assertThat(created.updatedAt()).isEqualTo(NOW);
-        assertThat(service.listContents()).containsExactly(created);
-        assertThat(service.getContent(created.id())).isEqualTo(created);
-        assertThat(narrationRepository.state.status()).isEqualTo(NarrationStatus.PENDING);
-        assertThat(narrationRepository.state.sourceUpdatedAt()).isEqualTo(created.updatedAt());
-        assertThat(publishedEvents).singleElement().isInstanceOf(NarrationGenerationRequested.class);
+    @BeforeEach
+    void setUp() {
+        contents = new InMemoryContentRepository();
+        narrations = mock(NarrationAssetRepositoryPort.class);
+        service = new ContentService(contents, narrations, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
-    void 콘텐츠를_수정하면_생성시각은_보존한다() {
-        Episode original = service.createContent(draft("첫 제목"));
-        UUID originalGeneration = narrationRepository.state.generationId();
-        narrationRepository.makeReady();
+    void 콘텐츠_생성은_자동_TTS를_예약하지_않는다() {
+        Episode created = service.createContent(draft("새 이야기", "새 원고"), "quiet-writer");
 
-        Episode updated = service.updateContent(original.id(), draft("수정된 제목"));
+        assertThat(service.getContent(created.id())).isEqualTo(created);
+        assertThat(created.authorUsername()).isEqualTo("quiet-writer");
+        verify(narrations, never()).resetToPending(any(), any(), any(), any(), any());
+        verify(narrations, never()).deleteByContentId(any());
+    }
 
-        assertThat(updated.title()).isEqualTo("수정된 제목");
-        assertThat(updated.createdAt()).isEqualTo(original.createdAt());
-        assertThat(updated.updatedAt()).isEqualTo(NOW);
-        assertThat(narrationRepository.state.status()).isEqualTo(NarrationStatus.PENDING);
-        assertThat(narrationRepository.state.generationId()).isNotEqualTo(originalGeneration);
-        assertThat(narrationRepository.findReadyAudio(updated.id())).isEmpty();
-        assertThat(publishedEvents).hasSize(2);
+    @Test
+    void 원고가_같은_metadata_수정은_기존_audio를_보존한다() {
+        Episode original = service.createContent(draft("첫 제목", "같은 원고"), "first-author");
+
+        Episode updated = service.updateContent(original.id(), draft("수정 제목", "같은 원고"));
+
+        assertThat(updated.title()).isEqualTo("수정 제목");
+        assertThat(updated.authorUsername()).isEqualTo("first-author");
+        verify(narrations, never()).deleteByContentId(original.id());
+        verify(narrations, never()).resetToPending(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void 원고가_바뀌면_MP3를_즉시_지우고_자동_TTS는_호출하지_않는다() {
+        Episode original = service.createContent(draft("첫 제목", "이전 원고"), "first-author");
+
+        service.updateContent(original.id(), draft("수정 제목", "변경된 원고"));
+
+        verify(narrations).deleteByContentId(original.id());
+        verify(narrations, never()).resetToPending(any(), any(), any(), any(), any());
     }
 
     @Test
     void 없는_콘텐츠는_명확한_예외를_던진다() {
         UUID missingId = UUID.randomUUID();
-
         assertThatThrownBy(() -> service.getContent(missingId))
                 .isInstanceOf(ContentNotFoundException.class)
                 .hasMessageContaining(missingId.toString());
     }
 
-    private EpisodeDraft draft(String title) {
-        return new EpisodeDraft(
-                title,
-                "편안한 요약",
-                ContentCategory.QUANTUM_PHYSICS,
-                "잠들기 전에 천천히 들어볼 원고입니다."
-        );
+    private EpisodeDraft draft(String title, String script) {
+        return new EpisodeDraft(title, "편안한 요약", ContentCategory.SCIENCE, script);
     }
 
-    private static final class FakeContentRepository implements ContentRepositoryPort {
+    private static final class InMemoryContentRepository implements ContentRepositoryPort {
         private final Map<UUID, Episode> episodes = new LinkedHashMap<>();
 
         @Override
@@ -103,6 +98,11 @@ class ContentServiceTest {
         }
 
         @Override
+        public Optional<Episode> findByIdForUpdate(UUID contentId) {
+            return findById(contentId);
+        }
+
+        @Override
         public Episode save(Episode episode) {
             episodes.put(episode.id(), episode);
             return episode;
@@ -111,76 +111,6 @@ class ContentServiceTest {
         @Override
         public long count() {
             return episodes.size();
-        }
-    }
-
-    private static final class FakeNarrationRepository implements NarrationAssetRepositoryPort {
-        private NarrationState state;
-        private AudioContent audio;
-
-        @Override
-        public NarrationState resetToPending(
-                UUID contentId,
-                UUID generationId,
-                Instant sourceUpdatedAt,
-                Instant updatedAt
-        ) {
-            state = new NarrationState(
-                    contentId,
-                    generationId,
-                    sourceUpdatedAt,
-                    NarrationStatus.PENDING,
-                    null,
-                    updatedAt,
-                    false
-            );
-            audio = null;
-            return state;
-        }
-
-        @Override
-        public Optional<NarrationState> findState(UUID contentId) {
-            return state != null && state.contentId().equals(contentId) ? Optional.of(state) : Optional.empty();
-        }
-
-        @Override
-        public Optional<AudioContent> findReadyAudio(UUID contentId) {
-            return state != null && state.contentId().equals(contentId) ? Optional.ofNullable(audio) : Optional.empty();
-        }
-
-        @Override
-        public boolean markProcessing(UUID contentId, UUID generationId, Instant updatedAt) {
-            return false;
-        }
-
-        @Override
-        public boolean markReady(
-                UUID contentId,
-                UUID generationId,
-                Voice voice,
-                NarrationOptions options,
-                AudioContent readyAudio,
-                Instant updatedAt
-        ) {
-            return false;
-        }
-
-        @Override
-        public boolean markFailed(UUID contentId, UUID generationId, String errorMessage, Instant updatedAt) {
-            return false;
-        }
-
-        private void makeReady() {
-            audio = AudioContent.wav(new byte[]{1, 2, 3});
-            state = new NarrationState(
-                    state.contentId(),
-                    state.generationId(),
-                    state.sourceUpdatedAt(),
-                    NarrationStatus.READY,
-                    null,
-                    state.updatedAt(),
-                    true
-            );
         }
     }
 }

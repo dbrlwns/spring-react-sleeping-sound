@@ -19,6 +19,7 @@ interface SpringDataNarrationRepository extends JpaRepository<NarrationJpaEntity
                    n.generationId as generationId,
                    n.sourceUpdatedAt as sourceUpdatedAt,
                    n.status as status,
+                   n.voiceId as selectedVoiceId,
                    n.errorMessage as errorMessage,
                    n.updatedAt as updatedAt,
                    n.audioAvailable as audioAvailable
@@ -28,15 +29,18 @@ interface SpringDataNarrationRepository extends JpaRepository<NarrationJpaEntity
     Optional<NarrationStateProjection> findStateProjection(@Param("contentId") UUID contentId);
 
     @Query("""
-            select n.audioBytes as audioBytes
+            select n.audioBytes as audioBytes,
+                   n.mediaType as mediaType
               from NarrationJpaEntity n
              where n.contentId = :contentId
                and n.status = :readyStatus
                and n.audioAvailable = true
+               and n.mediaType = :mediaType
             """)
     Optional<NarrationAudioProjection> findReadyAudioProjection(
             @Param("contentId") UUID contentId,
-            @Param("readyStatus") NarrationStatus readyStatus
+            @Param("readyStatus") NarrationStatus readyStatus,
+            @Param("mediaType") String mediaType
     );
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
@@ -45,7 +49,7 @@ interface SpringDataNarrationRepository extends JpaRepository<NarrationJpaEntity
                set n.generationId = :generationId,
                    n.sourceUpdatedAt = :sourceUpdatedAt,
                    n.status = :pendingStatus,
-                   n.voiceId = null,
+                   n.voiceId = :voiceId,
                    n.speed = :speed,
                    n.audioBytes = null,
                    n.mediaType = null,
@@ -58,6 +62,7 @@ interface SpringDataNarrationRepository extends JpaRepository<NarrationJpaEntity
             @Param("contentId") UUID contentId,
             @Param("generationId") UUID generationId,
             @Param("sourceUpdatedAt") Instant sourceUpdatedAt,
+            @Param("voiceId") String voiceId,
             @Param("pendingStatus") NarrationStatus pendingStatus,
             @Param("speed") double speed,
             @Param("updatedAt") Instant updatedAt
@@ -116,6 +121,8 @@ interface SpringDataNarrationRepository extends JpaRepository<NarrationJpaEntity
 
         NarrationStatus getStatus();
 
+        String getSelectedVoiceId();
+
         String getErrorMessage();
 
         Instant getUpdatedAt();
@@ -125,5 +132,7 @@ interface SpringDataNarrationRepository extends JpaRepository<NarrationJpaEntity
 
     interface NarrationAudioProjection {
         byte[] getAudioBytes();
+
+        String getMediaType();
     }
 }
